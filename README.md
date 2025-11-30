@@ -10,8 +10,9 @@ Nulls-site - это сайт для быстрого создания .json фа
 <a href="https://t.me/nb_mods">
     <img src="https://s3.radikal.cloud/2025/11/30/1000185484af0b8f2590039354.jpg" alt="ned">
 </a>
+<h6>(нажми на фото)</h6>
 или же подписать его для личного использования здесь:
 <a href="https://t.me/nulls_mods_bot" target="_blank">
     <img src="https://i.postimg.cc/mr2xrBKR/pngtree-click-me-3d-button-web-png-image-6213762.png" alt="ned">
 </a>
-<h6>нажми на фото</h6>
+<h6>(нажми на фото)</h6>
