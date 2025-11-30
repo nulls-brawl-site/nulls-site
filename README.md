@@ -8,5 +8,5 @@ Nulls-site - это сайт для быстрого создания .json фа
 **Готово!**
 теперь вы можете создать ваш собственный мод и выложить в https://t.me/nb_mods, или же подписать его для личного использования здесь:
 <a href="https://t.me/nulls_mods_bot" target="_blank">
-    <img src="https://s3.radikal.cloud/2025/11/30/1000185484af0b8f2590039354.jpg" alt="Описание фото">
+    <img src="https://i.postimg.cc/mr2xrBKR/pngtree-click-me-3d-button-web-png-image-6213762.png" alt="Описание фото">
 </a>
