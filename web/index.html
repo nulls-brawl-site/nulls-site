@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="theme-color" content="#101418">
 <title>Null's Brawl — Мод билдер</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/assets/css/style.css">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=202606121053">
+<link rel="stylesheet" href="/assets/css/style.css?v=202606121053">
 </head>
 <body>
 
@@ -26,7 +26,7 @@
     </div>
     <div class="err-console" id="err-console"></div>
     <div class="err-actions">
-      <button class="btn btn-tonal btn-sm" id="btn-autofix" onclick="App.autoFix()" style="display:none">
+      <button class="btn btn-tonal btn-sm is-hidden" id="btn-autofix" onclick="App.autoFix()">
         <span class="material-symbols-rounded">auto_fix_high</span>Auto Fix
       </button>
       <button class="btn btn-outlined btn-sm" onclick="App.copyError()">
@@ -51,7 +51,7 @@
 <!-- Snackbar -->
 <div class="snackbar" id="snackbar">
   <span id="snack-msg"></span>
-  <button class="snack-act" id="snack-act" style="display:none"></button>
+  <button class="snack-act is-hidden" id="snack-act"></button>
 </div>
 
 <!-- Scrim -->
@@ -66,17 +66,17 @@
     </button>
   </div>
   <div class="drawer-body">
-    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+    <div class="drawer-actions">
       <button class="btn btn-tonal btn-block" onclick="App.confirmNew()">
         <span class="material-symbols-rounded">add</span>Новый проект
       </button>
       <button class="btn btn-outlined btn-block" onclick="document.getElementById('json-upload').click()">
-        <span class="material-symbols-rounded">upload_file</span>Загрузить JSON
+        <span class="material-symbols-rounded">file_upload</span>Загрузить JSON
       </button>
-      <input type="file" id="json-upload" accept=".json" style="display:none" onchange="App.importJson(this)">
+      <input type="file" id="json-upload" accept=".json" class="is-hidden" onchange="App.importJson(this)">
     </div>
     <div class="divider"></div>
-    <div id="hist-list" style="margin-top:10px">
+    <div id="hist-list" class="hist-list">
       <div class="hist-empty">Нет сохранённых проектов</div>
     </div>
   </div>
@@ -94,7 +94,7 @@
     <div class="top-bar-actions">
       <span class="save-badge" id="save-badge">Сохранено</span>
       <button class="btn-icon" onclick="App.generate()" title="Собрать мод">
-        <span class="material-symbols-rounded">bolt</span>
+        <span class="material-symbols-rounded">auto_awesome</span>
       </button>
     </div>
   </header>
@@ -116,7 +116,7 @@
         <label>@title — Название (RU)</label>
         <div class="rich-group" id="rg-tru">
           <input type="text" id="title_ru" placeholder="Мой первый мод" oninput="App.save()">
-          <div class="rich-toggle">▾</div>
+          <button type="button" class="rich-toggle" aria-label="HTML теги"><span class="material-symbols-rounded">expand_more</span></button>
           <div class="html-menu" id="hm-tru"></div>
         </div>
       </div>
@@ -124,7 +124,7 @@
         <label>@title — Title (EN)</label>
         <div class="rich-group" id="rg-ten">
           <input type="text" id="title_en" placeholder="My first mod" oninput="App.save()">
-          <div class="rich-toggle">▾</div>
+          <button type="button" class="rich-toggle" aria-label="HTML теги"><span class="material-symbols-rounded">expand_more</span></button>
           <div class="html-menu" id="hm-ten"></div>
         </div>
       </div>
@@ -132,7 +132,7 @@
         <label>@description (RU)</label>
         <div class="rich-group">
           <textarea id="desc_ru" rows="2" placeholder="Мод, добавляющий…" oninput="App.save()"></textarea>
-          <div class="rich-toggle">▾</div>
+          <button type="button" class="rich-toggle" aria-label="HTML теги"><span class="material-symbols-rounded">expand_more</span></button>
           <div class="html-menu"></div>
         </div>
       </div>
@@ -140,7 +140,7 @@
         <label>@description (EN)</label>
         <div class="rich-group">
           <textarea id="desc_en" rows="2" placeholder="A mod that adds…" oninput="App.save()"></textarea>
-          <div class="rich-toggle">▾</div>
+          <button type="button" class="rich-toggle" aria-label="HTML теги"><span class="material-symbols-rounded">expand_more</span></button>
           <div class="html-menu"></div>
         </div>
       </div>
@@ -148,7 +148,7 @@
         <label>@author</label>
         <div class="rich-group">
           <input type="text" id="author" value="User" oninput="App.save()">
-          <div class="rich-toggle">▾</div>
+          <button type="button" class="rich-toggle" aria-label="HTML теги"><span class="material-symbols-rounded">expand_more</span></button>
           <div class="html-menu"></div>
         </div>
       </div>
@@ -158,11 +158,15 @@
           <label>@version</label>
           <input type="text" id="version" value="1.0.0" placeholder="1.0.0" oninput="App.save()">
         </div>
-        <div class="field" style="flex:2;min-width:200px">
-          <label>@uuid <small style="color:var(--c-on-surf-var)">(необяз.)</small></label>
-          <div style="display:flex;gap:6px">
+        <div class="field">
+          <label>@gv</label>
+          <input type="number" id="gv" value="65" placeholder="65" min="1" step="1" oninput="App.save()">
+        </div>
+        <div class="field uuid-field">
+          <label>UUID папки <small>(не входит в content.json)</small></label>
+          <div class="uuid-control">
             <input type="text" id="uuid" placeholder="550e8400-e29b-41d4-…"
-                   style="flex:1;font-family:'JetBrains Mono',monospace;font-size:12px" oninput="App.save()">
+                   class="uuid-input" oninput="App.save()">
             <button class="btn btn-tonal btn-sm" onclick="App.genUUID()" title="Генерировать UUID">
               <span class="material-symbols-rounded">shuffle</span>
             </button>
@@ -171,12 +175,12 @@
       </div>
 
       <div class="field">
-        <label>@spec <small style="color:var(--c-on-surf-var)">(необяз.)</small></label>
-        <input type="text" id="spec" placeholder="…" oninput="App.save()">
+        <label>@spec <small>(необяз.)</small></label>
+        <input type="number" id="spec" placeholder="0" min="0" step="1" oninput="App.save()">
       </div>
       <div class="field">
-        <label>@patches — путь к файлу <small style="color:var(--c-on-surf-var)">(необяз.)</small></label>
-        <input type="text" id="patches_path" placeholder="json/mods/root.json" oninput="App.save()">
+        <label>@patches — пути к файлам <small>(через запятую)</small></label>
+        <input type="text" id="patches_path" placeholder="json/mods/root.json, json/mods/extra.json" oninput="App.save()">
       </div>
     </div>
 
@@ -186,8 +190,8 @@
     <!-- Features section -->
     <div class="card collapsible" id="feats-section">
       <div class="collapse-toggle" onclick="App.toggleSection('feats-section')">
-        <div class="card-header" style="margin-bottom:0">
-          <div class="card-icon" style="background:var(--c-tert-cont);color:var(--c-on-tert-cont)">
+        <div class="card-header card-header-tight">
+          <div class="card-icon card-icon-tertiary">
             <span class="material-symbols-rounded">extension</span>
           </div>
           <div>
@@ -198,9 +202,9 @@
         <span class="material-symbols-rounded chevron">expand_more</span>
       </div>
       <div class="collapse-body">
-        <div style="height:10px"></div>
+        <div class="collapse-gap"></div>
         <div id="feats-list"></div>
-        <button class="btn btn-outlined btn-block btn-sm" onclick="App.addFeat()" style="margin-top:8px">
+        <button class="btn btn-outlined btn-block btn-sm mt-8" onclick="App.addFeat()">
           <span class="material-symbols-rounded">add</span>Добавить фичу
         </button>
       </div>
@@ -209,8 +213,8 @@
     <!-- Feature groups section -->
     <div class="card collapsible" id="groups-section">
       <div class="collapse-toggle" onclick="App.toggleSection('groups-section')">
-        <div class="card-header" style="margin-bottom:0">
-          <div class="card-icon" style="background:var(--c-sec-cont);color:var(--c-on-sec-cont)">
+        <div class="card-header card-header-tight">
+          <div class="card-icon card-icon-secondary">
             <span class="material-symbols-rounded">folder_special</span>
           </div>
           <div>
@@ -221,23 +225,22 @@
         <span class="material-symbols-rounded chevron">expand_more</span>
       </div>
       <div class="collapse-body">
-        <div style="height:10px"></div>
+        <div class="collapse-gap"></div>
         <div id="groups-list"></div>
-        <button class="btn btn-outlined btn-block btn-sm" onclick="App.addGroup()" style="margin-top:8px">
+        <button class="btn btn-outlined btn-block btn-sm mt-8" onclick="App.addGroup()">
           <span class="material-symbols-rounded">add</span>Добавить группу
         </button>
       </div>
     </div>
 
     <!-- Generate + Output -->
-    <div class="card" style="margin-top:8px">
+    <div class="card generate-card">
       <button class="btn btn-filled btn-block" onclick="App.generate()">
-        <span class="material-symbols-rounded">bolt</span>Собрать мод
+        <span class="material-symbols-rounded">auto_awesome</span>Собрать мод
       </button>
       <pre class="json-out" id="json-out"></pre>
-      <a id="dl-btn" class="btn btn-success btn-block"
-         style="display:none;margin-top:8px" href="#">
-        <span class="material-symbols-rounded">download</span>Скачать mod.json
+      <a id="dl-btn" class="btn btn-success btn-block is-hidden mt-8" href="#" download="content.json">
+        <span class="material-symbols-rounded">download</span>Скачать content.json
       </a>
     </div>
 
@@ -247,11 +250,11 @@
 <!-- FAB: wrapped in fixed div to avoid stacking context issues -->
 <div class="fab-wrapper">
   <button class="fab" onclick="App.addPatch()">
-    <span class="material-symbols-rounded">add</span>
+    <span class="material-symbols-rounded">add_circle</span>
     <span>Добавить CSV</span>
   </button>
 </div>
 
-<script src="/assets/js/app.js"></script>
+<script src="/assets/js/app.js?v=202606121053"></script>
 </body>
 </html>

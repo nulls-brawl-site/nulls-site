@@ -12,6 +12,9 @@ let snkT  = null;   // snackbar timer
 let lastFail = '';  // last failed JSON for autofix
 let csvList  = null;// [{name,size}]
 let keysC    = {};  // keys cache: filename→{keys,bool_cols}
+let restoring = false;
+let downloadUrl = null;
+let keyFilterRAF = {};
 
 /* ── API endpoints ──────────────────────────────────── */
 const PHP = '/api.php';
@@ -35,6 +38,49 @@ const uid  = () => Date.now().toString(36)+Math.random().toString(36).slice(2,6)
 const $ = id => document.getElementById(id);
 const h = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const a = s => String(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const ico = name => `<span class="material-symbols-rounded" aria-hidden="true">${name}</span>`;
+const setHidden = (el, hidden) => el?.classList.toggle('is-hidden', hidden);
+const parseList = s => String(s||'').split(/[\n,]/).map(x=>x.trim()).filter(Boolean);
+
+async function fetchJson(url, opts={}, fallback='Ошибка API'){
+  const r = await fetch(url, opts);
+  if(!r.ok) throw new Error(`${fallback}: HTTP ${r.status}`);
+  return await r.json();
+}
+
+function setRichOpen(toggle, open){
+  toggle.classList.toggle('open', open);
+  toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function clearDownload(){
+  if(downloadUrl){
+    URL.revokeObjectURL(downloadUrl);
+    downloadUrl=null;
+  }
+  const btn=$('dl-btn');
+  if(btn){
+    btn.href='#';
+    btn.removeAttribute('data-ready');
+    setHidden(btn,true);
+  }
+}
+
+function setDownload(jsonText){
+  clearDownload();
+  const blob=new Blob([jsonText],{type:'application/json;charset=utf-8'});
+  downloadUrl=URL.createObjectURL(blob);
+  const btn=$('dl-btn');
+  btn.href=downloadUrl;
+  btn.download='content.json';
+  btn.setAttribute('data-ready','1');
+  setHidden(btn,false);
+}
+
+function downloadJson(){
+  const btn=$('dl-btn');
+  if(btn?.dataset.ready==='1') btn.click();
+}
 
 /* ── Ripple ─────────────────────────────────────────── */
 document.addEventListener('pointerdown', e => {
@@ -62,8 +108,8 @@ function snack(msg, actLabel='', actFn=null, ms=3500){
   clearTimeout(snkT);
   const el=$('snackbar'),act=$('snack-act');
   $('snack-msg').textContent=msg;
-  if(actLabel&&actFn){act.textContent=actLabel;act.onclick=actFn;act.style.display='block'}
-  else act.style.display='none';
+  if(actLabel&&actFn){act.textContent=actLabel;act.onclick=actFn;setHidden(act,false)}
+  else setHidden(act,true);
   el.classList.add('show');
   snkT=setTimeout(()=>el.classList.remove('show'), ms);
 }
@@ -73,9 +119,10 @@ function dlg(title, body, btns){
   $('dlg-title').textContent=title;
   $('dlg-body').innerHTML=body;
   const act=$('dlg-actions'); act.innerHTML='';
-  btns.forEach(({l,cls,fn})=>{
+  btns.forEach(({l,cls,fn,i})=>{
     const b=document.createElement('button');
-    b.className=`btn ${cls}`; b.textContent=l;
+    b.className=`btn ${cls}`;
+    b.innerHTML=`${i?ico(i):''}${h(l)}`;
     b.onclick=()=>{closeDlg();if(fn)fn()};
     act.appendChild(b);
   });
@@ -89,7 +136,7 @@ function closeDlg(e){
 /* ── Error ──────────────────────────────────────────── */
 function showErr(rep, fix=false){
   $('err-console').textContent=rep;
-  $('btn-autofix').style.display=fix?'inline-flex':'none';
+  setHidden($('btn-autofix'), !fix);
   $('err-back').classList.add('open');
 }
 function closeError(){$('err-back').classList.remove('open')}
@@ -97,6 +144,8 @@ function copyError(){navigator.clipboard.writeText($('err-console').textContent)
 
 /* ── Autosave ───────────────────────────────────────── */
 function save(){
+  if(restoring) return;
+  clearDownload();
   const badge=$('save-badge');
   badge.textContent='Сохранение…';badge.classList.add('show');
   clearTimeout(stAT); stAT=setTimeout(doSave,1100);
@@ -104,21 +153,30 @@ function save(){
 async function doSave(){
   try{
     const d=collect(); d.id=pid;
-    const r=await fetch(`${PHP}?action=save`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});
-    const j=await r.json();
+    const j=await fetchJson(`${PHP}?action=save`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)},'Сохранение');
     if(j.success){
       pid=j.id;
       $('save-badge').textContent='Сохранено';
       setTimeout(()=>$('save-badge').classList.remove('show'),2200);
+    } else {
+      throw new Error(j.error||'save failed');
     }
-  }catch(_){}
+  }catch(e){
+    $('save-badge').textContent='Ошибка сохранения';
+    setTimeout(()=>$('save-badge').classList.remove('show'),3200);
+  }
 }
 
 /* ── CSV List ───────────────────────────────────────── */
 async function loadCsvList(){
   if(csvList)return csvList;
-  const r=await fetch(`${PHP}?action=csv_list`).catch(()=>null);
-  csvList=r?.ok ? await r.json() : [];
+  try{
+    const data=await fetchJson(`${CSV}/list`,{},'Список CSV');
+    csvList=Array.isArray(data) ? data : (data.files||[]);
+  }catch(_){
+    const r=await fetch(`${PHP}?action=csv_list`).catch(()=>null);
+    csvList=r?.ok ? await r.json() : [];
+  }
   return csvList;
 }
 
@@ -160,7 +218,7 @@ async function loadHist(){
         </div>`;
       list.appendChild(el);
     });
-  }catch(e){console.error(e)}
+  }catch(e){snack('Ошибка истории: '+e.message)}
 }
 
 async function loadProj(id){
@@ -177,8 +235,8 @@ async function loadProj(id){
 
 function confirmDel(id){
   dlg('Удалить проект?','Это действие нельзя отменить.',[
-    {l:'Отмена',cls:'btn-outlined'},
-    {l:'Удалить',cls:'btn-danger',fn:()=>delProj(id)}
+    {l:'Отмена',cls:'btn-outlined',i:'close'},
+    {l:'Удалить',cls:'btn-danger',i:'delete',fn:()=>delProj(id)}
   ]);
 }
 async function delProj(id){
@@ -189,18 +247,18 @@ async function delProj(id){
 
 function confirmNew(){
   dlg('Новый проект','Несохранённые изменения будут потеряны.',[
-    {l:'Отмена',cls:'btn-outlined'},
-    {l:'Создать',cls:'btn-filled',fn:newProj}
+    {l:'Отмена',cls:'btn-outlined',i:'close'},
+    {l:'Создать',cls:'btn-filled',i:'add',fn:newProj}
   ]);
 }
 function newProj(){
   pid=null;
   ['title_ru','title_en','desc_ru','desc_en','spec','patches_path','uuid'].forEach(id=>$(id).value='');
-  $('author').value='User'; $('version').value='1.0.0';
+  $('author').value='User'; $('version').value='1.0.0'; $('gv').value='65';
   $('patches').innerHTML='';
   $('feats-list').innerHTML=''; $('groups-list').innerHTML='';
   $('json-out').textContent=''; $('json-out').classList.remove('show');
-  $('dl-btn').style.display='none';
+  clearDownload();
   closeDrawer(); snack('Новый проект');
 }
 
@@ -231,9 +289,10 @@ function initRichMenus(){
     });
     menu.appendChild(strip); menu.appendChild(grid);
 
-    toggle.onclick=()=>{const o=menu.classList.toggle('open');toggle.textContent=o?'▴':'▾'};
+    toggle.setAttribute('aria-expanded','false');
+    toggle.onclick=()=>{const o=menu.classList.toggle('open');setRichOpen(toggle,o)};
     document.addEventListener('click',e=>{
-      if(!grp.contains(e.target)){menu.classList.remove('open');toggle.textContent='▾'}
+      if(!grp.contains(e.target)){menu.classList.remove('open');setRichOpen(toggle,false)}
     },true);
   });
 }
@@ -254,16 +313,16 @@ function linkInsert(el){
 }
 
 /* ── CSV Patch Blocks ───────────────────────────────── */
-function addPatch(restoreData=null){
+async function addPatch(restoreData=null){
   const id=uid();
   const el=document.createElement('div');
   el.className='patch-block'; el.id=`pb-${id}`;
   el.innerHTML=`
     <div class="patch-header">
-      <span class="material-symbols-rounded" style="color:var(--c-on-prim-cont);font-size:20px">table_chart</span>
+      <span class="material-symbols-rounded patch-leading">table_chart</span>
       <span class="patch-title" id="pt-${id}">Выберите CSV файл…</span>
       <button class="btn-icon" onclick="App.rmPatch('${id}')" title="Удалить блок">
-        <span class="material-symbols-rounded" style="color:var(--c-error)">delete</span>
+        <span class="material-symbols-rounded icon-danger">delete</span>
       </button>
     </div>
     <div class="patch-body">
@@ -279,8 +338,7 @@ function addPatch(restoreData=null){
         <!-- dropdown is global, positioned fixed -->
       </div>
       <div id="rows-${id}"></div>
-      <button class="btn btn-outlined btn-block btn-sm" id="addrow-${id}"
-              style="display:none;margin-top:10px"
+      <button class="btn btn-outlined btn-block btn-sm is-hidden mt-10" id="addrow-${id}"
               onclick="App.addRow('${id}')">
         <span class="material-symbols-rounded">add</span>Добавить строку
       </button>
@@ -291,8 +349,8 @@ function addPatch(restoreData=null){
     $(`fs-${id}`).value=restoreData.filename.replace('.csv','');
     $(`fn-${id}`).value=restoreData.filename;
     $(`pt-${id}`).textContent=restoreData.filename.replace('.csv','');
-    $(`addrow-${id}`).style.display='flex';
-    restoreData.rows.forEach(row=>addRow(id,row));
+    setHidden($(`addrow-${id}`), false);
+    for(const row of (restoreData.rows||[])) await addRow(id,row);
   }
   save();
 }
@@ -357,7 +415,7 @@ async function pickCsv(filename, blockId){
   $(`pt-${blockId}`).textContent=filename.replace('.csv','');
   srchDrop.classList.remove('open');
   srchActive={id:null,inp:null};
-  $(`addrow-${blockId}`).style.display='flex';
+  setHidden($(`addrow-${blockId}`), false);
   $(`rows-${blockId}`).innerHTML='';
   await addRow(blockId);
   save();
@@ -374,11 +432,17 @@ async function addRow(blockId, restore=null){
   if(!info){
     showLoad('Загрузка строк…');
     try{
-      const r=await fetch(`${CSV}/keys`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn})});
-      info=await r.json();
+      info=await fetchJson(`${CSV}/keys`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn})},'CSV keys');
       if(info.success)keysC[fn]=info;
-    }catch(e){}
-    hideLoad();
+    }catch(e){
+      snack(e.message);
+    }finally{
+      hideLoad();
+    }
+  }
+  if(!info?.success){
+    snack(info?.error ? `CSV: ${info.error}` : 'Не удалось загрузить CSV');
+    return;
   }
   const keys=info?.keys||[];
   const bools=info?.bool_cols||[];
@@ -389,9 +453,9 @@ async function addRow(blockId, restore=null){
   el.innerHTML=`
     <div class="row-entry-header">
       <span class="row-num">${rowN}</span>
-      <button class="btn-icon" style="margin-left:auto"
+      <button class="btn-icon row-remove"
               onclick="App.rmRow('${rowId}','${blockId}')" title="Удалить строку">
-        <span class="material-symbols-rounded" style="font-size:18px;color:var(--c-error)">remove_circle</span>
+        <span class="material-symbols-rounded icon-danger">remove_circle</span>
       </button>
     </div>
     <div class="mode-chips" id="mc-${rowId}">
@@ -411,7 +475,7 @@ async function addRow(blockId, restore=null){
         </select>
         <input type="hidden" id="kallkeys-${rowId}" value="${a(JSON.stringify(keys))}">
       </div>
-      <div id="rflt-${rowId}" class="field" style="display:none">
+      <div id="rflt-${rowId}" class="field is-hidden">
         <label>Boolean столбец</label>
         <select id="fsel-${rowId}" onchange="App.loadFltFields('${blockId}','${rowId}')">
           ${bools.map(b=>`<option value="${a(b)}">${h(b)}</option>`).join('')}
@@ -419,7 +483,7 @@ async function addRow(blockId, restore=null){
       </div>
     </div>
     <div class="fields-list" id="fl-${rowId}">
-      <div style="color:var(--c-on-surf-var);font-size:13px;padding:4px 0">Выберите строку для редактирования…</div>
+      <div class="empty-hint">Выберите строку для редактирования…</div>
     </div>`;
   $(`rows-${blockId}`).appendChild(el);
 
@@ -452,15 +516,20 @@ function rmRow(rowId,blockId){
   save();
 }
 
-function setMode(rowId,mode,blockId){
+async function setMode(rowId,mode,blockId){
   $(`mc-${rowId}`).querySelectorAll('.chip').forEach(c=>c.classList.toggle('active',c.dataset.m===mode));
-  $(`rnorm-${rowId}`).style.display=mode==='row'?'block':'none';
-  $(`rflt-${rowId}`).style.display=mode==='flt'?'block':'none';
-  if(mode==='flt') loadFltFields(blockId,rowId);
-  else if($(`ksel-${rowId}`)?.value) loadFields(blockId,rowId);
+  setHidden($(`rnorm-${rowId}`), mode!=='row');
+  setHidden($(`rflt-${rowId}`), mode!=='flt');
+  if(mode==='flt') await loadFltFields(blockId,rowId);
+  else if($(`ksel-${rowId}`)?.value) await loadFields(blockId,rowId);
 }
 
 function filterKeys(rowId){
+  cancelAnimationFrame(keyFilterRAF[rowId]);
+  keyFilterRAF[rowId]=requestAnimationFrame(()=>filterKeysNow(rowId));
+}
+
+function filterKeysNow(rowId){
   const q=$(`ksrch-${rowId}`).value.toLowerCase();
   const all=JSON.parse($(`kallkeys-${rowId}`).value||'[]');
   const sel=$(`ksel-${rowId}`);
@@ -475,11 +544,11 @@ async function loadFields(blockId,rowId,saved=null){
   if(!fn||!key)return;
   showLoad('Загрузка полей…');
   try{
-    const r=await fetch(`${CSV}/row`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn,row_key:key})});
-    const d=await r.json();
+    const d=await fetchJson(`${CSV}/row`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn,row_key:key})},'CSV row');
     if(d.success) renderFields(rowId,d.fields,saved);
-  }catch(e){}
-  hideLoad(); save();
+    else snack(d.error||'Строка не найдена');
+  }catch(e){snack(e.message)}
+  finally{hideLoad(); save()}
 }
 
 async function loadFltFields(blockId,rowId,saved=null){
@@ -487,16 +556,23 @@ async function loadFltFields(blockId,rowId,saved=null){
   if(!fn)return;
   showLoad('Загрузка полей…');
   try{
-    const r=await fetch(`${CSV}/bool_row`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn})});
-    const d=await r.json();
+    const d=await fetchJson(`${CSV}/bool_row`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:fn})},'CSV boolean row');
     if(d.success) renderFields(rowId,d.fields,saved);
-  }catch(e){}
-  hideLoad(); save();
+    else snack(d.error||'Boolean поля не найдены');
+  }catch(e){snack(e.message)}
+  finally{hideLoad(); save()}
 }
 
 function renderFields(rowId,fields,saved=null){
   const cont=$(`fl-${rowId}`);
-  cont.innerHTML='';
+  if(!fields?.length){
+    const empty=document.createElement('div');
+    empty.className='empty-hint';
+    empty.textContent='Нет доступных полей';
+    cont.replaceChildren(empty);
+    return;
+  }
+  const frag=document.createDocumentFragment();
   fields.forEach(f=>{
     const changed=saved&&Object.prototype.hasOwnProperty.call(saved,f.name);
     const dv=changed?saved[f.name]:f.value;
@@ -515,10 +591,11 @@ function renderFields(rowId,fields,saved=null){
     }
     const item=document.createElement('div');
     item.className='field-item'+(isChanged?' changed':'');
-    item.dataset.fn=f.name; item.dataset.orig=f.value;
+    item.dataset.fn=f.name; item.dataset.orig=String(f.value ?? '');
     item.innerHTML=`<span class="fname" title="${a(f.name)}">${h(f.name)}</span>${ctrl}`;
-    cont.appendChild(item);
+    frag.appendChild(item);
   });
+  cont.replaceChildren(frag);
 }
 
 function markChg(el){
@@ -544,8 +621,8 @@ function addFeat(rid=null,rd=null){
   el.innerHTML=`
     <div class="feat-header">
       <span class="feat-badge" id="fbdg-${id}">${h(rid||'MyFeature')}</span>
-      <button class="btn-icon" style="margin-left:auto" onclick="App.rmFeat('${id}')">
-        <span class="material-symbols-rounded" style="color:var(--c-error)">delete</span>
+      <button class="btn-icon row-remove" onclick="App.rmFeat('${id}')" title="Удалить фичу">
+        <span class="material-symbols-rounded icon-danger">delete</span>
       </button>
     </div>
     <div class="field">
@@ -563,7 +640,7 @@ function addFeat(rid=null,rd=null){
       <input type="text" id="fnen-${id}" value="${a(d['@name']?.EN||'')}" placeholder="Feature name" oninput="App.save()">
     </div>
     <div class="field">
-      <label>@description (RU) <small style="color:var(--c-on-surf-var)">(необяз.)</small></label>
+      <label>@description (RU) <small>(необяз.)</small></label>
       <input type="text" id="fdru-${id}" value="${a(typeof d['@description']==='object'?d['@description']?.RU||'':d['@description']||'')}" oninput="App.save()">
     </div>
     <div class="field">
@@ -571,11 +648,11 @@ function addFeat(rid=null,rd=null){
       <input type="text" id="fden-${id}" value="${a(d['@description']?.EN||'')}" oninput="App.save()">
     </div>
     <div class="field">
-      <label>@patches <small style="color:var(--c-on-surf-var)">(путь, необяз.)</small></label>
+      <label>@patches <small>(путь, необяз.)</small></label>
       <input type="text" id="fptch-${id}" value="${a(d['@patches']||'')}" placeholder="json/mods/feat.json" oninput="App.save()">
     </div>
     <div class="field">
-      <label>@root <small style="color:var(--c-on-surf-var)">(папка файлов)</small></label>
+      <label>@root <small>(папка файлов)</small></label>
       <input type="text" id="froot-${id}" value="${a(d['@root']||'')}" placeholder="files/myFeature" oninput="App.save()">
     </div>
     <div class="field-row-wrap">
@@ -585,9 +662,9 @@ function addFeat(rid=null,rd=null){
       </div>
     </div>
     <div class="field">
-      <label>@conflicts <small style="color:var(--c-on-surf-var)">(ID через Enter)</small></label>
+      <label>@conflicts <small>(ID через Enter)</small></label>
       <div class="tags-wrap" id="fconf-${id}" onclick="this.querySelector('input').focus()">
-        ${(d['@conflicts']||[]).map(c=>`<span class="tag-pill">${h(c)}<button onclick="this.closest('.tag-pill').remove();App.save()">×</button></span>`).join('')}
+        ${(d['@conflicts']||[]).map(c=>`<span class="tag-pill" data-value="${a(c)}"><span>${h(c)}</span><button type="button" class="tag-remove" onclick="this.closest('.tag-pill').remove();App.save()">${ico('close')}</button></span>`).join('')}
         <input type="text" placeholder="featureId…" onkeydown="App.addConf(event,'${id}')">
       </div>
     </div>
@@ -606,7 +683,8 @@ function addConf(e,id){
   if(e.key!=='Enter'&&e.key!==',')return; e.preventDefault();
   const inp=e.target,v=inp.value.trim(); if(!v)return;
   const pill=document.createElement('span'); pill.className='tag-pill';
-  pill.innerHTML=`${h(v)}<button onclick="this.closest('.tag-pill').remove();App.save()">×</button>`;
+  pill.dataset.value=v;
+  pill.innerHTML=`<span>${h(v)}</span><button type="button" class="tag-remove" onclick="this.closest('.tag-pill').remove();App.save()">${ico('close')}</button>`;
   inp.before(pill); inp.value=''; save();
 }
 
@@ -620,8 +698,8 @@ function addGroup(rid=null,rd=null){
   el.innerHTML=`
     <div class="feat-header">
       <span class="feat-badge" id="gbdg-${id}">${h(rid||'group1')}</span>
-      <button class="btn-icon" style="margin-left:auto" onclick="App.rmGroup('${id}')">
-        <span class="material-symbols-rounded" style="color:var(--c-error)">delete</span>
+      <button class="btn-icon row-remove" onclick="App.rmGroup('${id}')" title="Удалить группу">
+        <span class="material-symbols-rounded icon-danger">delete</span>
       </button>
     </div>
     <div class="field"><label>ID группы</label>
@@ -631,7 +709,7 @@ function addGroup(rid=null,rd=null){
       <input type="text" id="gnru-${id}" value="${a(typeof d['@name']==='object'?d['@name']?.RU||'':d['@name']||'')}" oninput="App.save()"></div>
     <div class="field"><label>@name (EN)</label>
       <input type="text" id="gnen-${id}" value="${a(d['@name']?.EN||'')}" oninput="App.save()"></div>
-    <div class="field"><label>@description (RU) <small style="color:var(--c-on-surf-var)">(необяз.)</small></label>
+    <div class="field"><label>@description (RU) <small>(необяз.)</small></label>
       <input type="text" id="gdru-${id}" value="${a(typeof d['@description']==='object'?d['@description']?.RU||'':d['@description']||'')}" oninput="App.save()"></div>
     <div class="field"><label>@description (EN)</label>
       <input type="text" id="gden-${id}" value="${a(d['@description']?.EN||'')}" oninput="App.save()"></div>
@@ -640,7 +718,7 @@ function addGroup(rid=null,rd=null){
         <option value="DEFAULT"     ${type==='DEFAULT'?'selected':''}>DEFAULT (множественный выбор)</option>
         <option value="RADIO_GROUP" ${type==='RADIO_GROUP'?'selected':''}>RADIO_GROUP (один выбор)</option>
       </select></div>
-    <div class="field"><label>@features <small style="color:var(--c-on-surf-var)">(ID через запятую)</small></label>
+    <div class="field"><label>@features <small>(ID через запятую)</small></label>
       <input type="text" id="gfts-${id}" value="${a((d['@features']||[]).join(', '))}"
              placeholder="MyFeature, MyFeature2" oninput="App.save()"></div>`;
   $('groups-list').appendChild(el);
@@ -654,6 +732,7 @@ function collect(){
     title_ru:$('title_ru').value, title_en:$('title_en').value,
     desc_ru:$('desc_ru').value,   desc_en:$('desc_en').value,
     author:$('author').value,     version:$('version').value||'1.0.0',
+    gv:parseInt($('gv').value||'65',10)||65,
     uuid:$('uuid').value,         spec:$('spec').value,
     patches_path:$('patches_path').value,
   };
@@ -666,7 +745,7 @@ function collect(){
     const rows=[];
     pb.querySelectorAll('.row-entry').forEach(re=>{
       const rid=re.id.replace('re-','');
-      const isFlt=$(`rflt-${rid}`)?.style.display!=='none';
+      const isFlt=!$(`rflt-${rid}`)?.classList.contains('is-hidden');
       let key;
       if(isFlt){const c=$(`fsel-${rid}`)?.value; key=c?`[${c}]`:null}
       else key=$(`ksel-${rid}`)?.value;
@@ -677,7 +756,8 @@ function collect(){
         const inp=fi.querySelector('input,select'); if(!nm||!inp)return;
         const tp=inp.dataset.type;
         let v=inp.value;
-        if(tp==='int'||tp==='integer') v=parseInt(v,10);
+        if(tp==='boolean') v=String(v).toUpperCase()==='TRUE';
+        else if(tp==='int'||tp==='integer') v=v===''?null:parseInt(v,10);
         changes[nm]=v;
       });
       if(Object.keys(changes).length) rows.push({key,changes});
@@ -700,7 +780,7 @@ function collect(){
     const prio=parseInt($(`fprio-${id}`)?.value||'0',10); if(prio) feat['@priority']=prio;
     const enb=$(`fen-${id}`)?.checked; if(!enb) feat['@enabled']=false;
     const pills=[...(document.querySelectorAll(`#fconf-${id} .tag-pill`)||[])];
-    if(pills.length) feat['@conflicts']=pills.map(p=>p.childNodes[0].textContent.trim());
+    if(pills.length) feat['@conflicts']=pills.map(p=>p.dataset.value||p.querySelector('span')?.textContent.trim()).filter(Boolean);
     features[key]=feat;
   });
 
@@ -728,14 +808,14 @@ function collect(){
 /* ── Build JSON ─────────────────────────────────────── */
 function buildJson(d){
   const o={};
-  o['$schema']='https://ext.nulls.gg/mods/schema/schema.json';
   if(d.title_ru||d.title_en) o['@title']=d.title_en?{RU:d.title_ru,EN:d.title_en}:d.title_ru;
   if(d.desc_ru||d.desc_en)   o['@description']=d.desc_en?{RU:d.desc_ru,EN:d.desc_en}:d.desc_ru;
   o['@version']=d.version||'1.0.0';
   o['@author']=d.author||'User';
-  if(d.uuid)         o['@uuid']=d.uuid;
-  if(d.spec)         o['@spec']=d.spec;
-  if(d.patches_path) o['@patches']=d.patches_path;
+  o['@gv']=parseInt(d.gv||65,10)||65;
+  if(d.spec!=='')    o['@spec']=parseInt(d.spec,10)||0;
+  const patchFiles=parseList(d.patches_path);
+  if(patchFiles.length) o['@patches']=patchFiles;
   if(Object.keys(d.features||{}).length)        o['@features']=d.features;
   if(Object.keys(d.feature_groups||{}).length)  o['@feature_groups']=d.feature_groups;
   (d.patches||[]).forEach(b=>{
@@ -748,14 +828,23 @@ function buildJson(d){
 
 /* ── Generate ───────────────────────────────────────── */
 async function generate(){
-  const json=buildJson(collect());
-  const str=JSON.stringify(json,null,2);
-  $('json-out').textContent=str; $('json-out').classList.add('show');
-  await fetch(`${PHP}?action=stage`,{method:'POST',headers:{'Content-Type':'application/json'},body:str});
-  $('dl-btn').href=`${PHP}?action=download`;
-  $('dl-btn').style.display='flex';
-  snack('Мод собран!','Скачать',()=>$('dl-btn').click());
-  $('json-out').scrollIntoView({behavior:'smooth',block:'nearest'});
+  try{
+    const json=buildJson(collect());
+    const str=JSON.stringify(json,null,2);
+    $('json-out').textContent=str; $('json-out').classList.add('show');
+    lastFail=str;
+    const vd=await fetchJson(`${PHP}?action=validate`,{method:'POST',headers:{'Content-Type':'text/plain'},body:str},'Валидация');
+    if(!vd.success){
+      showErr(vd.report||'JSON не прошел валидацию', true);
+      return;
+    }
+    setDownload(str);
+    fetchJson(`${PHP}?action=stage`,{method:'POST',headers:{'Content-Type':'application/json'},body:str},'Сборка').catch(()=>{});
+    snack('content.json собран!','Скачать',downloadJson);
+    $('json-out').scrollIntoView({behavior:'smooth',block:'nearest'});
+  }catch(e){
+    snack(e.message||'Ошибка сборки');
+  }
 }
 
 /* ── Import JSON ────────────────────────────────────── */
@@ -776,49 +865,54 @@ async function importJson(inp){
 }
 
 async function processJson(txt){
-  const j=JSON.parse(txt);
-  const sv=(id,v)=>{if(v!==undefined&&v!==null)$(id).value=v};
-  const tl=j['@title']; if(typeof tl==='object'){sv('title_ru',tl.RU);sv('title_en',tl.EN)}else if(tl)sv('title_en',tl);
-  const ds=j['@description']; if(typeof ds==='object'){sv('desc_ru',ds.RU);sv('desc_en',ds.EN)}else if(ds)sv('desc_en',ds);
-  sv('author',j['@author']); sv('version',j['@version']);
+  restoring=true;
+  try{
+    const j=JSON.parse(txt);
+    const sv=(id,v)=>{if(v!==undefined&&v!==null)$(id).value=v};
+    const tl=j['@title']; if(typeof tl==='object'){sv('title_ru',tl.RU);sv('title_en',tl.EN)}else if(tl)sv('title_en',tl);
+    const ds=j['@description']; if(typeof ds==='object'){sv('desc_ru',ds.RU);sv('desc_en',ds.EN)}else if(ds)sv('desc_en',ds);
+  sv('author',j['@author']); sv('version',j['@version']); sv('gv',j['@gv']);
   sv('uuid',j['@uuid']); sv('spec',j['@spec']); sv('patches_path',j['@patches']);
-  $('patches').innerHTML=''; $('feats-list').innerHTML=''; $('groups-list').innerHTML='';
+    $('patches').innerHTML=''; $('feats-list').innerHTML=''; $('groups-list').innerHTML='';
 
-  showLoad('Загрузка патчей…');
-  for(const[k,rows] of Object.entries(j)){
-    if(k.startsWith('@')||k==='$schema'||typeof rows!=='object'||rows===null)continue;
-    const bid=uid();
-    $('patches').insertAdjacentHTML('beforeend',
-      `<div class="patch-block" id="pb-${bid}">
-        <div class="patch-header">
-          <span class="material-symbols-rounded" style="color:var(--c-on-prim-cont);font-size:20px">table_chart</span>
-          <span class="patch-title" id="pt-${bid}">${h(k)}</span>
-          <button class="btn-icon" onclick="App.rmPatch('${bid}')">
-            <span class="material-symbols-rounded" style="color:var(--c-error)">delete</span>
-          </button>
-        </div>
-        <div class="patch-body">
-          <div class="field"><label>CSV файл</label>
-            <div class="search-wrap">
-              <input type="text" id="fs-${bid}" value="${h(k)}"
-                     oninput="App.srchCsv(this,'${bid}')" onfocus="App.srchCsv(this,'${bid}')" autocomplete="off">
-              <input type="hidden" id="fn-${bid}" value="${a(k+'.csv')}">
-            </div>
+    showLoad('Загрузка патчей…');
+    for(const[k,rows] of Object.entries(j)){
+      if(k.startsWith('@')||k==='$schema'||typeof rows!=='object'||rows===null)continue;
+      const bid=uid();
+      $('patches').insertAdjacentHTML('beforeend',
+        `<div class="patch-block" id="pb-${bid}">
+          <div class="patch-header">
+            <span class="material-symbols-rounded patch-leading">table_chart</span>
+            <span class="patch-title" id="pt-${bid}">${h(k)}</span>
+            <button class="btn-icon" onclick="App.rmPatch('${bid}')">
+              <span class="material-symbols-rounded icon-danger">delete</span>
+            </button>
           </div>
-          <div id="rows-${bid}"></div>
-          <button class="btn btn-outlined btn-block btn-sm" id="addrow-${bid}"
-                  style="display:flex;margin-top:10px" onclick="App.addRow('${bid}')">
-            <span class="material-symbols-rounded">add</span>Добавить строку
-          </button>
-        </div>
-      </div>`);
-    for(const[rk,changes] of Object.entries(rows)) await addRow(bid,{key:rk,changes});
+          <div class="patch-body">
+            <div class="field"><label>CSV файл</label>
+              <div class="search-wrap">
+                <input type="text" id="fs-${bid}" value="${a(k)}"
+                       oninput="App.srchCsv(this,'${bid}')" onfocus="App.srchCsv(this,'${bid}')" autocomplete="off">
+                <input type="hidden" id="fn-${bid}" value="${a(k+'.csv')}">
+              </div>
+            </div>
+            <div id="rows-${bid}"></div>
+            <button class="btn btn-outlined btn-block btn-sm mt-10" id="addrow-${bid}" onclick="App.addRow('${bid}')">
+              <span class="material-symbols-rounded">add</span>Добавить строку
+            </button>
+          </div>
+        </div>`);
+      for(const[rk,changes] of Object.entries(rows)) await addRow(bid,{key:rk,changes});
+    }
+    if(j['@features']) for(const[fid,fd] of Object.entries(j['@features'])){addFeat(fid,fd)}
+    if(j['@feature_groups']) for(const[gid,gd] of Object.entries(j['@feature_groups'])){addGroup(gid,gd)}
+    if(Object.keys(j['@features']||{}).length) $('feats-section').classList.add('open');
+    if(Object.keys(j['@feature_groups']||{}).length) $('groups-section').classList.add('open');
+  }finally{
+    restoring=false;
+    hideLoad();
+    save();
   }
-  if(j['@features']) for(const[fid,fd] of Object.entries(j['@features'])){addFeat(fid,fd)}
-  if(j['@feature_groups']) for(const[gid,gd] of Object.entries(j['@feature_groups'])){addGroup(gid,gd)}
-  if(Object.keys(j['@features']||{}).length) $('feats-section').classList.add('open');
-  if(Object.keys(j['@feature_groups']||{}).length) $('groups-section').classList.add('open');
-  hideLoad(); save();
 }
 
 async function autoFix(){
@@ -836,17 +930,23 @@ async function autoFix(){
 
 /* ── Populate from history ──────────────────────────── */
 async function populate(d){
-  ['title_ru','title_en','desc_ru','desc_en','author','version','uuid','spec','patches_path'].forEach(k=>{
-    const el=$(k); if(el) el.value=d[k]||'';
-  });
-  if(!$('author').value) $('author').value='User';
-  if(!$('version').value) $('version').value='1.0.0';
-  $('patches').innerHTML=''; $('feats-list').innerHTML=''; $('groups-list').innerHTML='';
-  showLoad('Восстановление…');
-  for(const p of (d.patches||[])) await addPatch(p);
-  for(const [fi,fd] of Object.entries(d.features||{})) addFeat(fi,fd);
-  for(const [gi,gd] of Object.entries(d.feature_groups||{})) addGroup(gi,gd);
-  hideLoad();
+  restoring=true;
+  try{
+    ['title_ru','title_en','desc_ru','desc_en','author','version','gv','uuid','spec','patches_path'].forEach(k=>{
+      const el=$(k); if(el) el.value=d[k]||'';
+    });
+    if(!$('author').value) $('author').value='User';
+    if(!$('version').value) $('version').value='1.0.0';
+    if(!$('gv').value) $('gv').value='65';
+    $('patches').innerHTML=''; $('feats-list').innerHTML=''; $('groups-list').innerHTML='';
+    showLoad('Восстановление…');
+    for(const p of (d.patches||[])) await addPatch(p);
+    for(const [fi,fd] of Object.entries(d.features||{})) addFeat(fi,fd);
+    for(const [gi,gd] of Object.entries(d.feature_groups||{})) addGroup(gi,gd);
+  }finally{
+    restoring=false;
+    hideLoad();
+  }
 }
 
 /* ── Init ───────────────────────────────────────────── */
@@ -864,7 +964,7 @@ return{
   addRow,rmRow,setMode,filterKeys,loadFields,loadFltFields,markChg,
   addFeat,rmFeat,updFBadge,addConf,
   addGroup,rmGroup,updGBadge,
-  generate,importJson,autoFix,
+  generate,importJson,autoFix,downloadJson,
   genUUID,save,
   closeDlg,closeError,copyError,snack,
 };
