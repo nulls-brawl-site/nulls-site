@@ -8,13 +8,24 @@ CSV_DIR = Path('/var/www/nulls-site/csv')
 CSV_CACHE: dict = {}
 
 # ──────────────────────────────────────────────
+def csv_path(filename: str):
+    name = Path(str(filename or '')).name
+    if not name.endswith('.csv') or name != filename:
+        return None
+    path = CSV_DIR / name
+    if not path.is_file():
+        return None
+    return path
+
 def read_csv(filename: str):
-    if filename in CSV_CACHE:
-        return CSV_CACHE[filename]
+    path = csv_path(filename)
+    if path is None:
+        return None
+    mtime = path.stat().st_mtime
+    cached = CSV_CACHE.get(filename)
+    if cached and cached.get('mtime') == mtime:
+        return cached
     try:
-        path = CSV_DIR / filename
-        if not path.exists():
-            return None
         df = pd.read_csv(path, header=0, encoding='utf-8', dtype=str)
         if df.empty:
             return None
@@ -34,7 +45,7 @@ def read_csv(filename: str):
         # Boolean columns (type == 'Boolean' or 'boolean')
         bool_cols = [c for c, v in types.items()
                      if str(v).strip().lower() == 'boolean' and c not in ('_ui_key',)]
-        result = {'df': df, 'types': types, 'pk': pk, 'bool_cols': bool_cols}
+        result = {'df': df, 'types': types, 'pk': pk, 'bool_cols': bool_cols, 'mtime': mtime}
         CSV_CACHE[filename] = result
         return result
     except Exception as e:
@@ -45,6 +56,15 @@ def read_csv(filename: str):
 @app.route('/health')
 def health():
     return jsonify({'ok': True})
+
+@app.route('/list')
+def list_csv():
+    files = [
+        {'name': p.name, 'size': p.stat().st_size}
+        for p in sorted(CSV_DIR.glob('*.csv'), key=lambda x: x.name)
+        if p.is_file()
+    ]
+    return jsonify({'success': True, 'files': files})
 
 @app.route('/keys', methods=['POST'])
 def get_keys():
@@ -136,6 +156,8 @@ def fix_json():
         data['@title'] = {'RU': 'Auto Fixed', 'EN': 'Auto Fixed'}
     if '@description' not in data and 'Description' not in data:
         data['@description'] = {'RU': 'Fixed', 'EN': 'Fixed'}
+    if '@gv' not in data:
+        data['@gv'] = 65
     return jsonify({'success': True, 'fixed_json': data})
 
 if __name__ == '__main__':

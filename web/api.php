@@ -3,6 +3,9 @@ header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+header('Expires: 0');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 define('HISTORY_DIR', '/var/www/nulls-site/history/');
@@ -63,12 +66,23 @@ switch ($action) {
       exit;
     }
     $errors = [];
-    if (!isset($json->{'@author'}) && !isset($json->Author))
-      $errors[] = "[META] Нет поля @author";
     if (!isset($json->{'@title'}) && !isset($json->Title))
       $errors[] = "[META] Нет поля @title";
     if (!isset($json->{'@description'}) && !isset($json->Description))
       $errors[] = "[META] Нет поля @description";
+    if (!isset($json->{'@gv'}) || !is_int($json->{'@gv'}))
+      $errors[] = "[META] Нет обязательного числового поля @gv";
+    if (isset($json->{'@spec'}) && !is_int($json->{'@spec'}))
+      $errors[] = "[META] Поле @spec должно быть числом";
+    if (isset($json->{'@patches'})) {
+      if (!is_array($json->{'@patches'})) {
+        $errors[] = "[META] Поле @patches должно быть массивом строк";
+      } else {
+        foreach ($json->{'@patches'} as $p) {
+          if (!is_string($p)) $errors[] = "[META] Все элементы @patches должны быть строками";
+        }
+      }
+    }
     foreach ($json as $key => $val) {
       if ($key[0] === '@' || $key === '$schema' || in_array($key, ['Author','Title','Description']))
         continue;
@@ -91,7 +105,7 @@ switch ($action) {
   case 'download':
     if (!file_exists(STAGE_FILE)) { http_response_code(404); exit; }
     header('Content-Type: application/json');
-    header('Content-Disposition: attachment; filename="mod.json"');
+    header('Content-Disposition: attachment; filename="content.json"; filename*=UTF-8\'\'content.json');
     readfile(STAGE_FILE);
     exit;
 
